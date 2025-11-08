@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Ecartz — Simple Shop</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Ecartz</h1>
+      <p>Your Need - Our Products</p>
+    </header>
+
+    <main class="two-column-layout">
+      <div class="left-column">
+        <section class="products-section">
+          <div class="section-header">
+            <h2>Product Catalogue</h2>
+            <a href="/segmentation" class="segment-btn">Customer Segmentation</a>
+            <a href="/reports" class="report-btn">📊 Reports Dashboard</a>
+          </div>
+
+          <div class="filter-section">
+            <span>Filter by Category:</span>
+            <div id="category-filter" class="category-buttons"></div>
+          </div>
+
+          <div id="product-list" class="product-grid"></div>
+        </section>
+      </div>
+
+      <div class="right-column">
+        <section class="cart-section">
+          <h2>Your Cart</h2>
+          <div id="cart-items" class="cart-list">
+            <p id="empty-cart-message" class="empty-message">Your cart is empty.</p>
+          </div>
+
+          <div class="cart-summary">
+            <span>Total:</span>
+            <span id="cart-total">$0.00</span>
+          </div>
+
+          <div id="message-box" class="message-box hidden"></div>
+
+          <div class="checkout-form">
+            <h3>Checkout</h3>
+            <input type="number" id="customer-id" placeholder="Enter Customer ID (e.g., 101)">
+            <button id="checkout-button" disabled>Place Order</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>

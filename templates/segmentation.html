@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Customer Segmentation | Ecartz</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    body { background-color: #f4f6f8; }
+    h1 { margin-top: 10px; font-size: 2rem; color: #2c3e50; font-weight: 600; }
+    p  { color: #555; line-height: 1.5; margin-bottom: 1.5rem; }
+    .back { display:inline-block; text-decoration:none; color:#007bff; font-weight:500; margin-bottom:20px; }
+    .back:hover { text-decoration: underline; }
+
+    .summary { display:flex; flex-wrap:wrap; gap:15px; margin-bottom:1.5rem; }
+    .card { flex:1 1 180px; background:#fff; border-radius:10px; padding:1rem 1.5rem; text-align:center;
+            box-shadow:0 4px 8px rgba(0,0,0,0.08); transition: transform .2s ease; }
+    .card:hover { transform: translateY(-4px); }
+    .card h3 { color:#2c3e50; margin-bottom:.25rem; }
+    .card p  { color:#555; font-size:.95rem; }
+
+    .filter-container { display:flex; align-items:center; gap:12px; margin:1.2rem 0; background:#fff; border-radius:8px;
+                        padding:.8rem 1rem; box-shadow:0 2px 6px rgba(0,0,0,0.05); }
+    .filter-container label { font-weight:600; color:#2c3e50; }
+    select#segmentFilter { padding:8px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px; color:#333; background:#fafafa; }
+    select#segmentFilter:hover { border-color:#007bff; background:#fff; }
+
+    .data-table { width:100%; border-collapse:collapse; background:#fff; border-radius:8px; overflow:hidden; box-shadow:0 4px 10px rgba(0,0,0,.08); }
+    .data-table th, .data-table td { padding:12px 14px; border-bottom:1px solid #e0e0e0; text-align:left; font-size:.95rem; }
+    .data-table th { background:#f7f9fb; color:#2c3e50; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+    .data-table tr:hover { background:#f3f7ff; }
+    .data-table a { color:#007bff; text-decoration:none; }
+    .data-table a:hover { text-decoration:underline; }
+
+    @media (max-width:768px) {
+      .summary { flex-direction:column; }
+      .filter-container { flex-direction:column; align-items:flex-start; }
+      .data-table th, .data-table td { font-size:.85rem; padding:8px 10px; }
+    }
+  </style>
+</head>
+<body>
+  <a href="/" class="back">&larr; Back to Home</a>
+
+  <h1>Customer Segmentation</h1>
+  <p>We split customers into 4 groups: <b>Frequent Buyers</b>, <b>Expensive Buyers</b>, <b>New Users</b>, and <b>Inactive Users</b>.</p>
+
+  <div id="summary" class="summary"></div>
+
+  <div class="filter-container">
+    <label for="segmentFilter">Filter by Segment:</label>
+    <select id="segmentFilter">
+      <option value="All">All Segments</option>
+      <option value="Frequent Buyer">Frequent Buyer</option>
+      <option value="Expensive Buyer">Expensive Buyer</option>
+      <option value="New User">New User</option>
+      <option value="Inactive User">Inactive User</option>
+    </select>
+  </div>
+
+  <table id="segTable" class="data-table" style="display:none;">
+    <thead>
+      <tr>
+        <th>Customer ID</th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Segment</th>
+        <th>Total Orders</th>
+        <th>Total Spent</th>
+        <th>Avg Order Value</th>
+        <th>Recency (Days)</th>
+        <th>Tenure (Days)</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    let allCustomers = [];
+
+    async function loadSegmentation() {
+      const res = await fetch("/api/segmentation");
+      const data = await res.json();
+      if (!data.success) {
+        document.body.innerHTML = "<p style='color:red;'>Error loading segmentation data.</p>";
+        return;
+      }
+      allCustomers = data.customers || [];
+
+      const summaryDiv = document.getElementById("summary");
+      summaryDiv.innerHTML = "";
+      const summary = data.summary || {};
+      for (let key in summary) {
+        summaryDiv.innerHTML += `
+          <div class="card">
+            <h3>${key}</h3>
+            <p>${summary[key]} customers</p>
+          </div>`;
+      }
+
+      renderTable(allCustomers);
+    }
+
+    function renderTable(customers) {
+      const tbody = document.querySelector("#segTable tbody");
+      tbody.innerHTML = "";
+
+      customers.forEach(c => {
+        const totalSpent = parseFloat(c.total_spent) || 0;
+        const avgOrder = parseFloat(c.avg_order_value) || 0;
+
+        const row = `
+          <tr>
+            <td>${c.CustomerID}</td>
+            <td>${c.Name}</td>
+            <td><a href="mailto:${c.Email}">${c.Email}</a></td>
+            <td>${c.Segment}</td>
+            <td>${c.total_orders}</td>
+            <td>$${totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>$${avgOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>${c.recency_days}</td>
+            <td>${c.tenure_days}</td>
+          </tr>`;
+        tbody.insertAdjacentHTML("beforeend", row);
+      });
+
+      document.getElementById("segTable").style.display =
+        customers.length > 0 ? "table" : "none";
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const filterSelect = document.getElementById("segmentFilter");
+      filterSelect.addEventListener("change", () => {
+        const selected = filterSelect.value;
+        if (selected === "All") {
+          renderTable(allCustomers);
+        } else {
+          renderTable(allCustomers.filter(c => c.Segment === selected));
+        }
+      });
+      loadSegmentation();
+    });
+  </script>
+</body>
+</html>

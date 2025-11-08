@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Business Analytics | Ecartz</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { background:#f8f9fa; }
+    .chart-container { background:#fff; padding:1rem; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.05); margin-bottom:2rem; }
+    canvas { width:100%; max-height:400px; }
+    .chart-title { font-size:1.3rem; font-weight:600; color:#2c3e50; margin-bottom:1rem; }
+    .back-btn { display:inline-block; margin-bottom:1.5rem; text-decoration:none; color:#007bff; font-weight:500; }
+    .back-btn:hover { text-decoration:underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-btn">← Back to Home</a>
+    <h1>📊 Business Analytics Dashboard</h1>
+    <p>Key insights from sales and order data.</p>
+
+    <div class="chart-container">
+      <div class="chart-title">Top 5 Selling Products</div>
+      <canvas id="topProductsChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title">Monthly Revenue Trend</div>
+      <canvas id="monthlyRevenueChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title">Category-wise Sales</div>
+      <canvas id="categorySalesChart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    async function loadReports() {
+      const res = await fetch("/api/reports");
+      const data = await res.json();
+      if (!data.success) {
+        alert("Failed to load reports.");
+        return;
+      }
+
+      // Top Products Bar Chart 
+      const topNames = data.top_products.map(p => p.Name);
+      const topQty = data.top_products.map(p => p.Sold);
+      new Chart(document.getElementById('topProductsChart'), {
+        type: 'bar',
+        data: {
+          labels: topNames,
+          datasets: [{
+            label: 'Units Sold',
+            data: topQty,
+            backgroundColor: '#3498db'
+          }]
+        },
+        options: {
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+
+      // Monthly Revenue Line Chart 
+      const months = data.monthly_revenue.map(r => r.Month);
+      const revenue = data.monthly_revenue.map(r => r.Revenue);
+      new Chart(document.getElementById('monthlyRevenueChart'), {
+        type: 'line',
+        data: {
+          labels: months,
+          datasets: [{
+            label: 'Revenue ($)',
+            data: revenue,
+            borderColor: '#2c3e50',
+            backgroundColor: 'rgba(44,62,80,0.1)',
+            tension: 0.3,
+            fill: true
+          }]
+        },
+        options: {
+          scales: { y: { beginAtZero: true } },
+          elements: { point: { radius: 5 } }
+        }
+      });
+
+      //  Category Sales Pie Chart 
+      const categories = data.category_sales.map(c => c.Category);
+      const categoryQty = data.category_sales.map(c => c.TotalSold);
+      new Chart(document.getElementById('categorySalesChart'), {
+        type: 'pie',
+        data: {
+          labels: categories,
+          datasets: [{
+            data: categoryQty,
+            backgroundColor: ['#3498db','#1abc9c','#9b59b6','#f1c40f','#e74c3c']
+          }]
+        }
+      });
+    }
+
+    loadReports();
+  </script>
+</body>
+</html>
