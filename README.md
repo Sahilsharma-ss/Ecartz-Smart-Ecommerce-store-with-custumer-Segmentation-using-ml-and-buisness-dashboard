@@ -3,7 +3,7 @@
 ## 📘 Overview
 Ecartz is a **Flask + MySQL** based e-commerce management system demonstrating **database design, analytics, and clustering (K-Means)** from scratch.  
 It features a clean UI, order processing, customer segmentation, and a reports dashboard.
-
+LINK : https://ecommerce-web-with-customer-segmentation.onrender.com
 ---
 
 ## 🚀 Features
