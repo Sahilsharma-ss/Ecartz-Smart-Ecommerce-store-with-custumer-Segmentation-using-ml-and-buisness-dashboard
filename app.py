@@ -25,7 +25,7 @@ def get_db_connection():
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
         dbname=os.getenv("DB_NAME"),
-        port=int(os.getenv("DB_PORT", 5432)),
+        port=int(os.getenv("DB_PORT", "5432")),
         sslmode=os.getenv("DB_SSLMODE", "require"),
     )
 
@@ -421,7 +421,7 @@ def get_reports():
             SELECT p.name AS "Name", SUM(oi.quantity) AS "Sold"
             FROM orderitems oi
             JOIN products p ON oi.productid = p.productid
-            GROUP BY p.productid, p.name
+            GROUP BY p.productid
             ORDER BY "Sold" DESC
             LIMIT 5;
         """)
