@@ -1,6 +1,6 @@
 flask
 flask-cors
-mysql-connector-python
+psycopg2-binary
 pandas
 numpy
 gunicorn
