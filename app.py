@@ -1,12 +1,18 @@
 
 
+import os
+from dotenv import load_dotenv
+
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
-import mysql.connector
+import psycopg2
+import psycopg2.extras
 import numpy as np
 import pandas as pd
 import decimal
 from datetime import datetime, date
+
+load_dotenv()
 
 # FLASK SETUP
 app = Flask(__name__)
@@ -14,12 +20,13 @@ CORS(app)
 
 # DATABASE CONNECTION
 def get_db_connection():
-    # TODO:
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="ecommercedb"
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        dbname=os.getenv("DB_NAME"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        sslmode=os.getenv("DB_SSLMODE", "require"),
     )
 
 # UTIL HELPERS
@@ -32,8 +39,8 @@ def to_float(x):
     return x
 
 def today_date(cursor):
-    """Ask DB for CURRENT_DATE() so time math uses DB clock."""
-    cursor.execute("SELECT CURRENT_DATE() AS today")
+    """Ask DB for CURRENT_DATE so time math uses DB clock."""
+    cursor.execute("SELECT CURRENT_DATE AS today")
     return pd.to_datetime(cursor.fetchone()["today"])
 
 # ROUTES: PAGES
@@ -51,9 +58,12 @@ def api_products():
     db, cur = None, None
     try:
         db = get_db_connection()
-        cur = db.cursor(dictionary=True)
-        cur.execute("SELECT ProductID, Name, Category, Price, StockQty FROM Products")
-        rows = cur.fetchall()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            'SELECT productid AS "ProductID", name AS "Name", category AS "Category",'
+            ' price AS "Price", stockqty AS "StockQty" FROM products'
+        )
+        rows = [dict(r) for r in cur.fetchall()]
         # Convert Decimals to float for JSON
         for r in rows:
             r["Price"] = to_float(r.get("Price", 0))
@@ -62,7 +72,7 @@ def api_products():
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         if cur: cur.close()
-        if db and db.is_connected(): db.close()
+        if db and not db.closed: db.close()
 
 #  SCRATCH K-MEANS 
 def robust_scale_fit(X):
@@ -147,18 +157,21 @@ def prepare_customer_dataframe(cur):
     cur.execute(
         """
         SELECT
-            c.CustomerID, c.Name, c.Email, c.JoinDate,
-            COUNT(DISTINCT o.OrderID) AS total_orders,
-            COALESCE(SUM(p.Amount), 0) AS total_spent,
-            COALESCE(MAX(o.OrderDate), c.JoinDate) AS last_order_date
-        FROM Customers c
-        LEFT JOIN Orders o ON o.CustomerID = c.CustomerID
-        LEFT JOIN Payments p ON p.OrderID = o.OrderID
-        GROUP BY c.CustomerID, c.Name, c.Email, c.JoinDate
-        ORDER BY c.CustomerID
+            c.customerid  AS "CustomerID",
+            c.name        AS "Name",
+            c.email       AS "Email",
+            c.joindate    AS "JoinDate",
+            COUNT(DISTINCT o.orderid)          AS total_orders,
+            COALESCE(SUM(p.amount), 0)         AS total_spent,
+            COALESCE(MAX(o.orderdate), c.joindate) AS last_order_date
+        FROM customers c
+        LEFT JOIN orders o ON o.customerid = c.customerid
+        LEFT JOIN payments p ON p.orderid = o.orderid
+        GROUP BY c.customerid, c.name, c.email, c.joindate
+        ORDER BY c.customerid
         """
     )
-    raw = pd.DataFrame(cur.fetchall())
+    raw = pd.DataFrame([dict(r) for r in cur.fetchall()])
     if raw.empty:
         return raw, None
 
@@ -230,7 +243,7 @@ def api_segmentation():
     db, cur = None, None
     try:
         db = get_db_connection()
-        cur = db.cursor(dictionary=True)
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         df, t0 = prepare_customer_dataframe(cur)
         if df is None or df.empty:
@@ -299,7 +312,7 @@ def api_segmentation():
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         if cur: cur.close()
-        if db and db.is_connected(): db.close()
+        if db and not db.closed: db.close()
 
 # PLACE ORDER
 @app.route('/api/place_order', methods=['POST'])
@@ -322,19 +335,20 @@ def place_order():
     db, cursor = None, None
     try:
         db = get_db_connection()
-        cursor = db.cursor(dictionary=True)
-        db.start_transaction()
+        cursor = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         # Calculate total amount
         total_amount = sum(float(item['price']) * int(item['quantity']) for item in cart_items)
 
-        # Insert into Orders (ensure TotalAmount + Status fields included)
+        # Insert into orders and get the new order ID via RETURNING
         order_query = """
-            INSERT INTO Orders (CustomerID, OrderDate, TotalAmount, Status)
+            INSERT INTO orders (customerid, orderdate, totalamount, status)
             VALUES (%s, NOW(), %s, %s)
+            RETURNING orderid
         """
         cursor.execute(order_query, (customer_id, total_amount, 'Completed'))
-        order_id = cursor.lastrowid
+        row = cursor.fetchone()
+        order_id = row["orderid"] if row else None
 
         if not order_id:
             raise Exception("Failed to create new order.")
@@ -347,9 +361,9 @@ def place_order():
 
             # 1. Update stock safely
             update_stock_query = """
-                UPDATE Products
-                SET StockQty = StockQty - %s
-                WHERE ProductID = %s AND StockQty >= %s
+                UPDATE products
+                SET stockqty = stockqty - %s
+                WHERE productid = %s AND stockqty >= %s
             """
             cursor.execute(update_stock_query, (quantity, product_id, quantity))
             if cursor.rowcount == 0:
@@ -357,14 +371,14 @@ def place_order():
 
             # 2️. Insert item
             item_query = """
-                INSERT INTO OrderItems (OrderID, ProductID, Quantity, Price)
+                INSERT INTO orderitems (orderid, productid, quantity, price)
                 VALUES (%s, %s, %s, %s)
             """
             cursor.execute(item_query, (order_id, product_id, quantity, price))
 
         #  Insert Payment record
         payment_query = """
-            INSERT INTO Payments (OrderID, Amount, PaymentMethod, Status, PaymentDate)
+            INSERT INTO payments (orderid, amount, paymentmethod, status, paymentdate)
             VALUES (%s, %s, %s, %s, NOW())
         """
         cursor.execute(payment_query, (order_id, total_amount, 'Card', 'Success'))
@@ -385,7 +399,7 @@ def place_order():
         return jsonify({"success": False, "message": f"Order failed: {e}"}), 500
     finally:
         if cursor: cursor.close()
-        if db and db.is_connected(): db.close()
+        if db and not db.closed: db.close()
 
 #Reports
 @app.route("/reports")
@@ -400,39 +414,39 @@ def get_reports():
     db, cur = None, None
     try:
         db = get_db_connection()
-        cur = db.cursor(dictionary=True)
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         #  Top 5 selling products
         cur.execute("""
-            SELECT p.Name, SUM(oi.Quantity) AS Sold
-            FROM OrderItems oi
-            JOIN Products p ON oi.ProductID = p.ProductID
-            GROUP BY oi.ProductID
-            ORDER BY Sold DESC
+            SELECT p.name AS "Name", SUM(oi.quantity) AS "Sold"
+            FROM orderitems oi
+            JOIN products p ON oi.productid = p.productid
+            GROUP BY p.productid
+            ORDER BY "Sold" DESC
             LIMIT 5;
         """)
-        top_products = cur.fetchall()
+        top_products = [dict(r) for r in cur.fetchall()]
 
-        #  Monthly revenue trend (current year) 
+        #  Monthly revenue trend (current year)
         cur.execute("""
-            SELECT DATE_FORMAT(OrderDate, '%b') AS Month, 
-                   SUM(TotalAmount) AS Revenue
-            FROM Orders
-            WHERE YEAR(OrderDate) = YEAR(CURDATE())
-            GROUP BY MONTH(OrderDate), Month
-            ORDER BY MONTH(OrderDate);
+            SELECT TO_CHAR(orderdate, 'Mon') AS "Month",
+                   SUM(totalamount) AS "Revenue"
+            FROM orders
+            WHERE EXTRACT(YEAR FROM orderdate) = EXTRACT(YEAR FROM CURRENT_DATE)
+            GROUP BY EXTRACT(MONTH FROM orderdate), TO_CHAR(orderdate, 'Mon')
+            ORDER BY EXTRACT(MONTH FROM orderdate);
         """)
-        monthly_revenue = cur.fetchall()
+        monthly_revenue = [dict(r) for r in cur.fetchall()]
 
-        # Category-wise sales 
+        # Category-wise sales
         cur.execute("""
-            SELECT p.Category, SUM(oi.Quantity) AS TotalSold
-            FROM OrderItems oi
-            JOIN Products p ON oi.ProductID = p.ProductID
-            GROUP BY p.Category
-            ORDER BY TotalSold DESC;
+            SELECT p.category AS "Category", SUM(oi.quantity) AS "TotalSold"
+            FROM orderitems oi
+            JOIN products p ON oi.productid = p.productid
+            GROUP BY p.category
+            ORDER BY "TotalSold" DESC;
         """)
-        category_sales = cur.fetchall()
+        category_sales = [dict(r) for r in cur.fetchall()]
 
         return jsonify({
             "success": True,
@@ -445,7 +459,7 @@ def get_reports():
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         if cur: cur.close()
-        if db and db.is_connected(): db.close()
+        if db and not db.closed: db.close()
 
 # ---------------------------
 # MAIN
